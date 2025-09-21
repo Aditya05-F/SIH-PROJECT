@@ -55,6 +55,24 @@
             <a class="navbar-brand fw-bold" href="{{ url_for('index') }}">
                 Career Guide AI
             </a>
+              {% if session.get("user_id") %}
+        <!-- Profile link visible only when logged in -->
+        <a href="{{ url_for('profile') }}" class="btn btn-outline-secondary me-2">
+          <i class="fas fa-user me-1"></i> Profile
+        </a>
+
+        <a href="{{ url_for('logout') }}" class="btn btn-outline-danger">
+          <i class="fas fa-sign-out-alt me-1"></i> Logout
+        </a>
+      {% else %}
+        <!-- Show login/signup when logged out -->
+        <a href="{{ url_for('login') }}" class="btn btn-outline-primary me-2">
+          <i class="fas fa-sign-in-alt me-1"></i> Login
+        </a>
+        <a href="{{ url_for('signup') }}" class="btn btn-success">
+          <i class="fas fa-user-plus me-1"></i> Signup
+        </a>
+      {% endif %}
             
             <div class="navbar-nav ms-auto">
                 <a href="{{ url_for('trends_page') }}" class="btn btn-primary">

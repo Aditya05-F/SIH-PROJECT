@@ -387,8 +387,30 @@ def logout():
 def dashboard():
     if "user_id" not in session:
         return redirect(url_for("login"))
-    return render_template("dashboard.html", skills=[], careers=[], aspiration="")
+    
+    # Use get() instead of pop() to keep the data in session
+    analysis_results = session.get('analysis_results', None)
+    
+    if analysis_results:
+        skills = analysis_results.get('skills', [])
+        careers = analysis_results.get('careers', [])
+        aspiration = analysis_results.get('aspiration', '')
+    else:
+        skills = []
+        careers = []
+        aspiration = ""
+    
+    return render_template("dashboard.html", skills=skills, careers=careers, aspiration=aspiration)
 
+@app.route("/clear_analysis")
+def clear_analysis():
+    """Clear analysis results and return to clean dashboard"""
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    
+    # This explicitly clears the analysis results
+    session.pop('analysis_results', None)
+    return redirect(url_for("dashboard"))
 @app.route("/upload_resume", methods=["POST"])
 def upload_resume():
     if "user_id" not in session:
@@ -430,14 +452,22 @@ def upload_resume():
         # ML Predictions
         careers = ml_recommend_career(skills, top_n=3) if skills else []
 
+        # Store the results in session
+        session['analysis_results'] = {
+            'skills': skills,
+            'careers': careers,
+            'aspiration': aspiration
+        }
+
         flash(f"Analysis complete! Found {len(skills)} skills.", "success")
-        return render_template("dashboard.html", skills=skills, careers=careers, aspiration=aspiration)
+        
+        # Redirect to dashboard (PRG pattern)
+        return redirect(url_for("dashboard"))
 
     except Exception as e:
         print(f"File processing error: {e}")
         flash("Error processing file. Please try again.", "error")
         return redirect(url_for("dashboard"))
-
 @app.route("/roadmap/<topic>")
 def show_roadmap(topic):
     if "user_id" not in session:
