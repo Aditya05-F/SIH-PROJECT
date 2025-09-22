@@ -13,63 +13,109 @@
 
     <!-- Custom styles for Bootstrap compatibility -->
     <style>
+        /* ===== Global ===== */
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #f8f9fa;
+            color: #333;
         }
 
+        a {
+            text-decoration: none;
+        }
+
+        /* ===== Navbar ===== */
+        .navbar {
+            background-color: #ffffff !important;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            padding: 0.75rem 1rem;
+        }
+
+        .navbar-brand {
+            font-weight: 700;
+            color: #6366f1 !important;
+            font-size: 1.3rem;
+            letter-spacing: 0.5px;
+        }
+
+        .navbar .btn {
+            margin-left: 0.5rem;
+            font-weight: 500;
+            border-radius: 6px;
+        }
+
+        .navbar .btn-outline-secondary:hover,
+        .navbar .btn-outline-danger:hover,
+        .navbar .btn-outline-primary:hover {
+            opacity: 0.9;
+        }
+
+        /* ===== Cards ===== */
         .card {
             border: none;
-            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.06);
+            transition: all 0.2s ease;
         }
 
+        .card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+        }
+
+        /* ===== Buttons ===== */
         .btn-indigo {
             background-color: #6366f1;
-            border-color: #6366f1;
-            color: white;
+            border: none;
+            color: #fff;
+            padding: 0.5rem 1rem;
+            font-weight: 500;
+            border-radius: 6px;
+            transition: 0.2s ease;
         }
 
         .btn-indigo:hover {
-            background-color: #5856eb;
-            border-color: #5856eb;
-            color: white;
+            background-color: #4f46e5;
+            color: #fff;
         }
 
-        .text-indigo {
-            color: #6366f1 !important;
-        }
-
-        .bg-indigo {
-            background-color: #6366f1 !important;
-        }
-
+        /* Skill Tags */
         .skill-badge {
             background-color: #e5e7eb;
             color: #374151;
-            font-size: 0.875rem;
+            font-size: 0.85rem;
             font-weight: 500;
             padding: 0.25rem 0.75rem;
             border-radius: 9999px;
             display: inline-block;
-            margin: 0.125rem;
+            margin: 0.2rem;
         }
 
-        /* Target the Google Translate dropdown container */
-        #google_translate_element {
-            display: inline-block;
-            /* keeps it inline */
-            width: 200px;
-            /* desired width */
-            height: 40px;
-            /* desired height */
-            overflow: hidden;
+
+
+        /* ===== Footer ===== */
+        footer {
+            background: #ffffff;
+            border-top: 1px solid #e5e7eb;
+            padding: 1.5rem 0;
+            color: #6b7280;
+            font-size: 0.95rem;
         }
 
-        /* Target the iframe inside */
-        #google_translate_element iframe {
-            width: 100% !important;
-            height: 100% !important;
-            min-width: 100% !important;
+        /* ===== Responsive ===== */
+        @media (max-width: 768px) {
+            #translate-container {
+                margin-top: 10px;
+            }
+
+            .translate-btn {
+                width: 100%;
+            }
+
+            .navbar .btn {
+                margin-left: 0;
+                margin-top: 8px;
+            }
         }
     </style>
 </head>
@@ -81,17 +127,15 @@
             <a class="navbar-brand fw-bold" href="{{ url_for('index') }}">
                 Career Guide AI
             </a>
+
             {% if session.get("user_id") %}
-            <!-- Profile link visible only when logged in -->
             <a href="{{ url_for('profile') }}" class="btn btn-outline-secondary me-2">
                 <i class="fas fa-user me-1"></i> Profile
             </a>
-
             <a href="{{ url_for('logout') }}" class="btn btn-outline-danger">
                 <i class="fas fa-sign-out-alt me-1"></i> Logout
             </a>
             {% else %}
-            <!-- Show login/signup when logged out -->
             <a href="{{ url_for('login') }}" class="btn btn-outline-primary me-2">
                 <i class="fas fa-sign-in-alt me-1"></i> Login
             </a>
@@ -99,7 +143,12 @@
                 <i class="fas fa-user-plus me-1"></i> Signup
             </a>
             {% endif %}
-            <div id="google_translate_element"></div>
+
+            <!-- ✅ Language Dropdown -->
+            <div id="translate-container" class="ms-3">
+                <div id="google_translate_element"></div>
+            </div>
+
             <div class="navbar-nav ms-auto">
                 <a href="{{ url_for('trends_page') }}" class="btn btn-primary">
                     <i class="fas fa-chart-line me-2"></i>View Trends
@@ -126,13 +175,19 @@
     <script type="text/javascript">
         function googleTranslateElementInit() {
             new google.translate.TranslateElement(
-                { pageLanguage: 'en', layout: google.translate.TranslateElement.InlineLayout.SIMPLE },
+                {
+                    pageLanguage: 'en',
+                    layout: google.translate.TranslateElement.InlineLayout.SIMPLE
+                },
                 'google_translate_element'
             );
-        }   
+        }
+        
     </script>
-    <script type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit">
-    </script>
+
+    <script type="text/javascript"
+        src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+</body>
 
 </body>
 
