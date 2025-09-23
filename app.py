@@ -7,6 +7,7 @@ import requests
 import numpy as np
 import re
 from werkzeug.utils import secure_filename
+import json
 
 # Load .env file
 load_dotenv()
@@ -26,7 +27,7 @@ app.secret_key = os.getenv("SECRET_KEY", "supersecretkey-change-in-production")
 
 # File upload settings
 UPLOAD_FOLDER = 'uploads'
-ALLOWED_EXTENSIONS = {'txt'}
+ALLOWED_EXTENSIONS = {'txt','pdf','docx'}
 MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -100,6 +101,30 @@ def init_db():
         current_education TEXT,
         skills_want_to_learn TEXT,
         career_goal TEXT
+    )""")
+
+    # NEW: User Goals Table
+    c.execute("""CREATE TABLE IF NOT EXISTS user_goals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        skill_name TEXT NOT NULL,
+        target_date DATE,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        status TEXT DEFAULT 'active',
+        completed_at DATETIME
+    )""")
+
+    # NEW: Roadmap Steps Table
+    c.execute("""CREATE TABLE IF NOT EXISTS user_roadmap_steps (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        goal_id INTEGER NOT NULL,
+        step_title TEXT NOT NULL,
+        description TEXT,
+        estimated_hours INTEGER,
+        order_index INTEGER,
+        completed BOOLEAN DEFAULT 0,
+        completed_at DATETIME,
+        FOREIGN KEY(goal_id) REFERENCES user_goals(id) ON DELETE CASCADE
     )""")
 
     conn.commit()
@@ -289,6 +314,166 @@ def summarize_trends(text):
     except Exception as e:
         print(f"Error in summarize_trends: {e}")
         return f"Summary unavailable due to an error. Here's the raw content:\n{text[:500]}..."
+    
+def generate_roadmap_for_goal(goal_id, skill_name, cursor):
+    """Generate roadmap steps for a goal using predefined templates"""
+    
+    DEFAULT_ROADMAPS = {
+        "Python": [
+            {"title": "Variables & Data Types", "desc": "Learn basics of variables, strings, numbers", "hours": 5, "order": 1},
+            {"title": "Control Flow", "desc": "If/else, loops, functions", "hours": 8, "order": 2},
+            {"title": "Data Structures", "desc": "Lists, dicts, tuples, sets", "hours": 6, "order": 3},
+            {"title": "OOP Concepts", "desc": "Classes, inheritance, methods", "hours": 10, "order": 4},
+            {"title": "Projects", "desc": "Build 2 small projects", "hours": 15, "order": 5}
+        ],
+        "JavaScript": [
+            {"title": "Syntax & DOM Basics", "desc": "Variables, functions, selecting elements", "hours": 6, "order": 1},
+            {"title": "Events & Forms", "desc": "Handling clicks, inputs, validation", "hours": 7, "order": 2},
+            {"title": "ES6+ Features", "desc": "Arrow functions, destructuring, modules", "hours": 8, "order": 3},
+            {"title": "Async JS", "desc": "Promises, async/await, fetch API", "hours": 10, "order": 4},
+            {"title": "Mini Projects", "desc": "Build a calculator, todo app", "hours": 12, "order": 5}
+        ],
+        "SQL": [
+            {"title": "SELECT & WHERE", "desc": "Basic queries, filtering data", "hours": 4, "order": 1},
+            {"title": "JOINs & GROUP BY", "desc": "Combine tables, aggregate data", "hours": 6, "order": 2},
+            {"title": "Subqueries & CTEs", "desc": "Nested queries, WITH clauses", "hours": 7, "order": 3},
+            {"title": "Indexes & Optimization", "desc": "Speed up queries", "hours": 5, "order": 4},
+            {"title": "Real-world Practice", "desc": "Solve 10+ practice problems", "hours": 10, "order": 5}
+        ]
+    }
+
+    # Fallback generic roadmap
+    GENERIC_ROADMAP = [
+        {"title": "Basics", "desc": "Learn fundamental concepts", "hours": 5, "order": 1},
+        {"title": "Intermediate Topics", "desc": "Dive deeper into core features", "hours": 8, "order": 2},
+        {"title": "Advanced Concepts", "desc": "Master complex techniques", "hours": 10, "order": 3},
+        {"title": "Practice Projects", "desc": "Apply knowledge in real scenarios", "hours": 12, "order": 4},
+        {"title": "Review & Polish", "desc": "Revise, refactor, and perfect", "hours": 5, "order": 5}
+    ]
+
+    roadmap = DEFAULT_ROADMAPS.get(skill_name.strip().title(), GENERIC_ROADMAP)
+
+    for step in roadmap:
+        cursor.execute("""
+            INSERT INTO user_roadmap_steps (goal_id, step_title, description, estimated_hours, order_index)
+            VALUES (?, ?, ?, ?, ?)
+        """, (goal_id, step["title"], step["desc"], step["hours"], step["order"]))
+
+def generate_ai_roadmap_for_goal(goal_id, skill_name, user_id, cursor):
+    """Generate roadmap using Gemini AI based on user's full profile"""
+    
+    if not GEMINI_API_KEY:
+        print("Gemini API key missing. Using fallback.")
+        return False
+
+    try:
+        # Fetch full profile
+        cursor.execute("""
+            SELECT interest, time_per_week, current_education, skills_want_to_learn, career_goal
+            FROM user_profile WHERE user_id = ?
+        """, (user_id,))
+        profile = cursor.fetchone()
+
+        if not profile:
+            return False
+
+        interest, time_per_week, education, skills_str, career_goal = profile
+
+        # Build context prompt
+        prompt = f"""
+You are a world-class learning coach. Create a personalized, step-by-step learning roadmap for a user who wants to learn "{skill_name}".
+
+User Context:
+- Interest: {interest or 'Not specified'}
+- Available time per week: {time_per_week or 'Not specified'}
+- Current education level: {education or 'Not specified'}
+- Other skills they want to learn: {skills_str or 'None'}
+- Long-term career goal: {career_goal or 'Not specified'}
+
+Instructions:
+1. Generate 5–8 clear, ordered learning steps.
+2. Each step should have:
+   - title (string)
+   - description (1–2 sentences)
+   - estimated_hours (integer, total hours needed for this step)
+   - order_index (integer starting from 1)
+3. Adjust depth and pace based on available time and education level.
+4. If career goal is provided, align later steps toward it.
+5. Return ONLY valid JSON in this exact format:
+{{
+  "roadmap": [
+    {{
+      "title": "Step 1 Title",
+      "description": "Description here...",
+      "estimated_hours": 5,
+      "order_index": 1
+    }}
+  ]
+}}
+
+Do NOT add any other text or explanation.
+"""
+
+        body = {
+            "contents": [{"parts": [{"text": prompt}]}]
+        }
+
+        model_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+
+        response = requests.post(
+            model_url,
+            headers={"Content-Type": "application/json"},
+            json=body,
+            timeout=30
+        )
+
+        if not response.ok:
+            print(f"Gemini API error: {response.status_code} {response.text}")
+            return False
+
+        data = response.json()
+        text_response = (data.get("candidates", [{}])[0]
+                        .get("content", {})
+                        .get("parts", [{}])[0]
+                        .get("text", ""))
+
+        if not text_response:
+            print("Empty response from Gemini")
+            return False
+
+        # Clean and parse JSON (Gemini sometimes wraps in ```json ... ```)
+        text_response = text_response.strip()
+        if text_response.startswith("```json"):
+            text_response = text_response[7:]  # Remove ```json
+        if text_response.endswith("```"):
+            text_response = text_response[:-3]
+
+        roadmap_data = json.loads(text_response)
+
+        # Validate structure
+        if "roadmap" not in roadmap_data or not isinstance(roadmap_data["roadmap"], list):
+            print("Invalid roadmap structure from AI")
+            return False
+
+        # Insert steps into DB
+        for step in roadmap_data["roadmap"]:
+            cursor.execute("""
+                INSERT INTO user_roadmap_steps (goal_id, step_title, description, estimated_hours, order_index)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                goal_id,
+                step.get("title", "Untitled Step")[:200],
+                step.get("description", "")[:500],
+                int(step.get("estimated_hours", 5)),
+                int(step.get("order_index", 1))
+            ))
+
+        print(f"✅ AI roadmap generated for goal {goal_id}: {skill_name}")
+        return True
+
+    except Exception as e:
+        print(f"Error in AI roadmap generation: {e}")
+        return False
 
 # ----------------- Routes -----------------
 @app.route("/profile", methods=["GET", "POST"])
@@ -315,16 +500,60 @@ def profile():
             conn.commit()
             flash("Profile updated successfully!", "success")
 
-        # Fetch profile if exists
+        # Fetch profile
         c.execute("SELECT interest, time_per_week, current_education, skills_want_to_learn, career_goal FROM user_profile WHERE user_id=?", (session["user_id"],))
         profile_data = c.fetchone()
+
+        # Fetch active goals
+        c.execute("""
+            SELECT id, skill_name, target_date, 
+                   (SELECT COUNT(*) FROM user_roadmap_steps WHERE goal_id = user_goals.id) as total_steps,
+                   (SELECT COUNT(*) FROM user_roadmap_steps WHERE goal_id = user_goals.id AND completed = 1) as completed_steps
+            FROM user_goals 
+            WHERE user_id = ? AND status = 'active'
+            ORDER BY created_at DESC
+        """, (session["user_id"],))
+        active_goals = []
+        for row in c.fetchall():
+            goal = {
+                "id": row[0],
+                "skill_name": row[1],
+                "target_date": row[2],
+                "total_steps": row[3],
+                "completed_steps": row[4],
+                "progress_percent": int(row[4]/row[3]*100) if row[3] > 0 else 0
+            }
+            active_goals.append(goal)
+
+        # Fetch completed goals
+        c.execute("""
+            SELECT skill_name, completed_at 
+            FROM user_goals 
+            WHERE user_id = ? AND status = 'completed'
+            ORDER BY completed_at DESC LIMIT 5
+        """, (session["user_id"],))
+        completed_goals = []
+        for row in c.fetchall():
+            from datetime import datetime
+            try:
+                dt = datetime.strptime(row[1], '%Y-%m-%d %H:%M:%S')
+                display_date = dt.strftime('%b %Y')
+            except:
+                display_date = row[1].split(' ')[0] if row[1] else "Unknown"
+                
+            completed_goals.append({
+                "skill_name": row[0],
+                "completed_at": display_date
+            })
+
         conn.close()
 
-        return render_template("profile.html", profile=profile_data)
+        return render_template("profile.html", profile=profile_data, active_goals=active_goals, completed_goals=completed_goals)
+
     except sqlite3.Error as e:
         print(f"Database error in profile: {e}")
         flash("Database error occurred. Please try again.", "error")
-        return render_template("profile.html", profile=None)
+        return render_template("profile.html", profile=None, active_goals=[], completed_goals=[])
 
 @app.route("/")
 def index():
@@ -542,6 +771,191 @@ def save_progress_route():
             return jsonify({"error": "Database error"}), 500
     except Exception as e:
         print(f"Save progress error: {e}")
+        return jsonify({"error": "Server error"}), 500
+    
+
+@app.route("/set_learning_goal", methods=["GET", "POST"])
+def set_learning_goal():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+
+    # Fetch profile to suggest defaults
+    c.execute("SELECT interest, skills_want_to_learn, career_goal FROM user_profile WHERE user_id=?", (session["user_id"],))
+    profile_suggestion = c.fetchone()
+    conn.close()
+
+    suggested_skill = ""
+    if profile_suggestion:
+        # Suggest first skill from "skills_want_to_learn" or use interest
+        skills_str = profile_suggestion[1] or profile_suggestion[0] or ""
+        if skills_str:
+            suggested_skill = skills_str.split(",")[0].strip()
+
+    if request.method == "POST":
+        skill_name = request.form.get("skill_name", "").strip()
+        target_date = request.form.get("target_date", "").strip() or None
+
+        if not skill_name:
+            flash("Skill name is required.", "error")
+            return render_template("set_learning_goal.html", suggested_skill=suggested_skill)
+
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
+
+            # Insert new goal
+            c.execute("""
+                INSERT INTO user_goals (user_id, skill_name, target_date)
+                VALUES (?, ?, ?)
+            """, (session["user_id"], skill_name, target_date))
+            goal_id = c.lastrowid
+
+            # 👇 NEW: Generate AI roadmap using full profile context
+            success = generate_ai_roadmap_for_goal(goal_id, skill_name, session["user_id"], c)
+            
+            if not success:
+                # Fallback to template
+                generate_roadmap_for_goal(goal_id, skill_name, c)
+
+            conn.commit()
+            conn.close()
+
+            flash(f"🎯 Smart roadmap generated for {skill_name}!", "success")
+            return redirect(url_for("learning_roadmap", goal_id=goal_id))
+
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            flash("Error setting goal. Please try again.", "error")
+
+    return render_template("set_learning_goal.html", suggested_skill=suggested_skill)
+
+@app.route("/learning_roadmap/<int:goal_id>")
+def learning_roadmap(goal_id):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        # Fetch goal
+        c.execute("""
+            SELECT id, skill_name, target_date, status,
+                   (SELECT COUNT(*) FROM user_roadmap_steps WHERE goal_id = user_goals.id) as total_steps,
+                   (SELECT COUNT(*) FROM user_roadmap_steps WHERE goal_id = user_goals.id AND completed = 1) as completed_steps
+            FROM user_goals 
+            WHERE id = ? AND user_id = ?
+        """, (goal_id, session["user_id"]))
+        goal_row = c.fetchone()
+
+        if not goal_row:
+            flash("Goal not found or access denied.", "error")
+            return redirect(url_for("profile"))
+
+        goal = {
+            "id": goal_row[0],
+            "skill_name": goal_row[1],
+            "target_date": goal_row[2],
+            "status": goal_row[3],
+            "total_steps": goal_row[4],
+            "completed_steps": goal_row[5],
+            "progress_percent": int(goal_row[5] / goal_row[4] * 100) if goal_row[4] > 0 else 0
+        }
+
+        # Fetch steps
+        c.execute("""
+            SELECT id, step_title, description, estimated_hours, completed
+            FROM user_roadmap_steps 
+            WHERE goal_id = ? 
+            ORDER BY order_index
+        """, (goal_id,))
+        steps = []
+        for row in c.fetchall():
+            steps.append({
+                "id": row[0],
+                "step_title": row[1],
+                "description": row[2],
+                "estimated_hours": row[3],
+                "completed": bool(row[4])
+            })
+
+        conn.close()
+
+        return render_template("learning_roadmap.html", goal=goal, roadmap_steps=steps)
+
+    except sqlite3.Error as e:
+        print(f"Database error: {e}")
+        flash("Error loading roadmap.", "error")
+        return redirect(url_for("profile"))
+    
+@app.route("/complete_step", methods=["POST"])
+def complete_step():
+    if "user_id" not in session:
+        return jsonify({"error": "Not logged in"}), 403
+
+    try:
+        data = request.get_json()
+        step_id = data.get("step_id")
+
+        if not step_id:
+            return jsonify({"error": "Missing step_id"}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        # Verify step belongs to user
+        c.execute("""
+            SELECT g.user_id 
+            FROM user_roadmap_steps rs
+            JOIN user_goals g ON rs.goal_id = g.id
+            WHERE rs.id = ?
+        """, (step_id,))
+        result = c.fetchone()
+
+        if not result or result[0] != session["user_id"]:
+            conn.close()
+            return jsonify({"error": "Unauthorized"}), 403
+
+        # Toggle completion
+        c.execute("SELECT completed FROM user_roadmap_steps WHERE id = ?", (step_id,))
+        current_status = c.fetchone()[0]
+        new_status = 1 - current_status  # Toggle 0↔1
+        completed_at = "datetime('now')" if new_status else "NULL"
+
+        c.execute(f"""
+            UPDATE user_roadmap_steps 
+            SET completed = ?, completed_at = {completed_at}
+            WHERE id = ?
+        """, (new_status, step_id))
+
+        # Get goal_id to check if all steps are done
+        c.execute("SELECT goal_id FROM user_roadmap_steps WHERE id = ?", (step_id,))
+        goal_id = c.fetchone()[0]
+
+        # Check if all steps in goal are completed
+        c.execute("""
+            SELECT COUNT(*) as total, SUM(completed) as completed
+            FROM user_roadmap_steps WHERE goal_id = ?
+        """, (goal_id,))
+        counts = c.fetchone()
+
+        if counts[0] > 0 and counts[0] == counts[1]:  # All steps completed
+            c.execute("""
+                UPDATE user_goals 
+                SET status = 'completed', completed_at = datetime('now')
+                WHERE id = ?
+            """, (goal_id,))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({"status": "saved"})
+
+    except Exception as e:
+        print(f"Complete step error: {e}")
         return jsonify({"error": "Server error"}), 500
 
 # ----------------- TRENDS ROUTES -----------------
