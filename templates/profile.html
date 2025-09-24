@@ -14,48 +14,60 @@
                     <div class="col-md-6">
                         <div class="bg-light p-4 rounded shadow-sm h-100">
                             <h5 class="mb-4"><i class="fas fa-edit me-2"></i>Edit Your Profile</h5>
+
+                            <!-- PROFILE FORM -->
                             <form method="POST">
-                                <!-- Row 1 -->
+                                <!-- Row 1: Interest & Time per Week -->
                                 <div class="row mb-3">
                                     <div class="col-md-8">
                                         <label for="interest" class="form-label">Interest</label>
                                         <input type="text" class="form-control" name="interest" id="interest"
-                                               value="{{ profile[0] if profile else '' }}">
+                                            value="{{ profile[0] if profile else '' }}">
                                     </div>
                                     <div class="col-md-4">
                                         <label for="time_per_week" class="form-label">Time per Week</label>
                                         <input type="text" class="form-control" name="time_per_week" id="time_per_week"
-                                               value="{{ profile[1] if profile else '' }}">
+                                            value="{{ profile[1] if profile else '' }}">
                                     </div>
                                 </div>
 
-                                <!-- Row 2 -->
+                                <!-- Row 2: Education & Skills to Learn -->
                                 <div class="row mb-3">
                                     <div class="col-md-6">
                                         <label for="current_education" class="form-label">Current Education</label>
-                                        <input type="text" class="form-control" name="current_education" id="current_education"
-                                               value="{{ profile[2] if profile else '' }}">
+                                        <input type="text" class="form-control" name="current_education"
+                                            id="current_education" value="{{ profile[2] if profile else '' }}">
                                     </div>
                                     <div class="col-md-6">
                                         <label for="skills_want_to_learn" class="form-label">Skills to Learn</label>
-                                        <input type="text" class="form-control" name="skills_want_to_learn" id="skills_want_to_learn"
-                                               value="{{ profile[3] if profile else '' }}">
+                                        <input type="text" class="form-control" name="skills_want_to_learn"
+                                            id="skills_want_to_learn" value="{{ profile[3] if profile else '' }}">
                                     </div>
                                 </div>
 
-                                <!-- Row 3 -->
+                                <!-- Row 3: Career Goal -->
                                 <div class="mb-4">
                                     <label for="career_goal" class="form-label">Career Goal</label>
-                                    <textarea class="form-control" name="career_goal" id="career_goal" rows="4">{{ profile[4] if profile else '' }}</textarea>
+                                    <textarea class="form-control" name="career_goal" id="career_goal"
+                                        rows="4">{{ profile[4] if profile else '' }}</textarea>
                                 </div>
 
-                                <!-- Button -->
+                                <!-- Save Button -->
                                 <div class="text-center">
                                     <button type="submit" class="btn btn-indigo btn-lg px-4">
                                         <i class="fas fa-save me-2"></i>Save Profile
                                     </button>
                                 </div>
                             </form>
+                            <!-- End of Profile Form -->
+
+                            <!-- Generate Roadmap Button -->
+                            <div class="text-center mt-3">
+                                <a href="{{ url_for('generate_career_roadmap') }}"
+                                    class="btn btn-outline-primary btn-sm">
+                                    <i class="fas fa-project-diagram me-1"></i> Generate Career Roadmap
+                                </a>
+                            </div>
                         </div>
                     </div>
 
@@ -64,70 +76,75 @@
                         <div class="bg-light p-4 rounded shadow-sm h-100">
                             <h5 class="mb-4"><i class="fas fa-user-circle me-2"></i>Profile Summary</h5>
 
+                            <!-- PROFILE SUMMARY SECTION -->
                             {% if profile %}
-                                <div class="mb-3">
-                                    <strong>Interest:</strong> {{ profile[0] or '<em>Not set</em>' }}
-                                </div>
-                                <div class="mb-3">
-                                    <strong>Time Available/Week:</strong> {{ profile[1] or '<em>Not set</em>' }}
-                                </div>
-                                <div class="mb-3">
-                                    <strong>Current Education:</strong> {{ profile[2] or '<em>Not set</em>' }}
-                                </div>
-                                <div class="mb-3">
-                                    <strong>Skills You Want to Learn:</strong> {{ profile[3] or '<em>Not set</em>' }}
-                                </div>
-                                <div class="mb-3">
-                                    <strong>Career Goal:</strong>
-                                    <p class="mb-0">{{ profile[4] or '<em>No goal set yet.</em>' }}</p>
-                                </div>
+                            <div class="mb-3">
+                                <strong>Interest:</strong> {{ profile[0] or '<em>Not set</em>' }}
+                            </div>
+                            <div class="mb-3">
+                                <strong>Time Available/Week:</strong> {{ profile[1] or '<em>Not set</em>' }}
+                            </div>
+                            <div class="mb-3">
+                                <strong>Current Education:</strong> {{ profile[2] or '<em>Not set</em>' }}
+                            </div>
+                            <div class="mb-3">
+                                <strong>Skills You Want to Learn:</strong> {{ profile[3] or '<em>Not set</em>' }}
+                            </div>
+                            <div class="mb-3">
+                                <strong>Career Goal:</strong>
+                                <p class="mb-0">{{ profile[4] or '<em>No goal set yet.</em>' }}</p>
+                            </div>
                             {% else %}
-                                <p class="text-muted">No profile data available. Please fill out the form to get started.</p>
+                            <p class="text-muted">No profile data available. Please fill out the form to get started.
+                            </p>
                             {% endif %}
+                            <!-- End of Profile Summary -->
 
                             <hr>
 
-                            <!-- Currently Learning -->
+                            <!-- CURRENTLY LEARNING SECTION -->
                             <h6><i class="fas fa-graduation-cap me-2"></i>Currently Learning</h6>
                             <ul class="list-unstyled small">
                                 {% if active_goals %}
-                                    {% for goal in active_goals %}
-                                    <li class="mb-2">
-                                        <a href="{{ url_for('learning_roadmap', goal_id=goal.id) }}" class="text-decoration-none">
-                                            <strong>{{ goal.skill_name }}</strong>
-                                            <span class="badge bg-success ms-2">{{ goal.progress_percent }}%</span>
-                                        </a>
-                                        <br>
-                                        <small class="text-muted">
-                                            {{ goal.completed_steps }}/{{ goal.total_steps }} steps • 
-                                            {% if goal.target_date %}Due: {{ goal.target_date }}{% else %}No deadline{% endif %}
-                                        </small>
-                                    </li>
-                                    {% endfor %}
+                                {% for goal in active_goals %}
+                                <li class="mb-2">
+                                    <a href="{{ url_for('learning_roadmap', goal_id=goal.id) }}"
+                                        class="text-decoration-none">
+                                        <strong>{{ goal.skill_name }}</strong>
+                                        <span class="badge bg-success ms-2">{{ goal.progress_percent }}%</span>
+                                    </a>
+                                    <br>
+                                    <small class="text-muted">
+                                        {{ goal.completed_steps }}/{{ goal.total_steps }} steps •
+                                        {% if goal.target_date %}Due: {{ goal.target_date }}{% else %}No deadline{%
+                                        endif %}
+                                    </small>
+                                </li>
+                                {% endfor %}
                                 {% else %}
-                                    <li><em>No active goals.</em></li>
+                                <li><em>No active goals.</em></li>
                                 {% endif %}
                             </ul>
 
+                            <!-- Set New Goal Button -->
                             <a href="{{ url_for('set_learning_goal') }}" class="btn btn-primary btn-sm mt-1">
                                 <i class="fas fa-plus me-1"></i> Set New Goal
                             </a>
-
                             <hr>
 
-                            <!-- Completed Skills -->
+                            <!-- COMPLETED SKILLS SECTION -->
                             <h6><i class="fas fa-trophy me-2"></i>Completed Skills</h6>
                             <ul class="list-unstyled small">
                                 {% if completed_goals %}
-                                    {% for goal in completed_goals %}
-                                    <li>
-                                        <strong>{{ goal.skill_name }}</strong> 
-                                        <span class="text-success">✓</span>
-                                        <small class="text-muted">({{ goal.completed_at }})</small>
-                                    </li>
-                                    {% endfor %}
+                                {% for goal in completed_goals %}
+                                <li>
+                                    <strong>{{ goal.skill_name }}</strong>
+                                    <span class="text-success">✓</span>
+                                    <small class="text-muted">({{ goal.completed_at }})</small>
+                                </li>
+                                {% endfor %}
                                 {% else %}
-                                    <li><em>Nothing completed yet.</em></li>
+                                <li><em>Nothing completed yet.</em></li>
                                 {% endif %}
                             </ul>
 

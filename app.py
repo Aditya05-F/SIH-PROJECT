@@ -8,6 +8,7 @@ import numpy as np
 import re
 from werkzeug.utils import secure_filename
 import json
+from datetime import datetime
 
 # Load .env file
 load_dotenv()
@@ -126,7 +127,7 @@ def init_db():
         completed_at DATETIME,
         FOREIGN KEY(goal_id) REFERENCES user_goals(id) ON DELETE CASCADE
     )""")
-
+    
     conn.commit()
     conn.close()
 
@@ -474,6 +475,186 @@ Do NOT add any other text or explanation.
     except Exception as e:
         print(f"Error in AI roadmap generation: {e}")
         return False
+    
+@app.route("/generate_career_roadmap", methods=["GET", "POST"])
+def generate_career_roadmap():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    if request.method == "POST":
+        career_goal = request.form.get("career_goal", "").strip()
+
+        if not career_goal:
+            flash("Please enter a career goal.", "error")
+            return render_template("career_roadmap_form.html")
+
+        try:
+            # Fetch user profile
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
+            c.execute("""
+                SELECT interest, time_per_week, current_education, skills_want_to_learn, career_goal
+                FROM user_profile WHERE user_id = ?
+            """, (session["user_id"],))
+            profile = c.fetchone()
+            conn.close()
+
+            if not profile:
+                flash("Please complete your profile first.", "error")
+                return render_template("career_roadmap_form.html")
+
+            # Generate roadmap via Gemini
+            roadmap_data = generate_career_roadmap_with_ai(career_goal, profile)
+
+            if not roadmap_data:
+                flash("Could not generate roadmap. Please try again.", "error")
+                return render_template("career_roadmap_form.html")
+
+            # Store in session temporarily (or cache in DB if needed later)
+            session['temp_career_roadmap'] = {
+                'target_career': career_goal,
+                'phases': roadmap_data.get('phases', []),
+                'generated_at': datetime.now().isoformat()
+            }
+
+            return redirect(url_for("view_career_roadmap"))
+
+        except Exception as e:
+            print(f"Error generating career roadmap: {e}")
+            flash("An error occurred. Please try again.", "error")
+
+    return render_template("career_roadmap_form.html")
+
+
+def generate_career_roadmap_with_ai(target_career, profile_tuple):
+    if not GEMINI_API_KEY:
+        return None
+
+    interest, time_per_week, education, skills_str, _ = profile_tuple
+
+    prompt = f"""
+You are a top-tier career coach. Create a comprehensive, phase-based learning roadmap for someone who wants to become a "{target_career}".
+
+User Context:
+- Interest: {interest or 'Not specified'}
+- Available time per week: {time_per_week or 'Not specified'}
+- Current education level: {education or 'Not specified'}
+- Skills they already want to learn: {skills_str or 'None'}
+
+Instructions:
+1. Break the journey into 3–5 logical PHASES (e.g., "Foundation", "Core Skills", "Advanced Topics", "Portfolio & Job Prep").
+2. Each phase should contain 2–4 KEY SKILLS to master.
+3. For each skill, include:
+   - skill_name (string)
+   - description (1 sentence)
+   - estimated_hours (integer)
+4. Adjust depth and pacing based on available time and education level.
+5. End with job-ready/portfolio advice if relevant.
+6. Return ONLY valid JSON in this exact format:
+{{
+  "phases": [
+    {{
+      "phase_name": "Phase 1: Foundation",
+      "skills": [
+        {{
+          "skill_name": "HTML & CSS",
+          "description": "Build static web pages with structure and style.",
+          "estimated_hours": 20
+        }}
+      ]
+    }}
+  ]
+}}
+
+Do NOT add any other text.
+"""
+
+    try:
+        body = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.1  # Keep it deterministic
+            }
+        }
+
+        model_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        response = requests.post(model_url, headers={"Content-Type": "application/json"}, json=body, timeout=30)
+
+        if not response.ok:
+            print(f"Gemini error: {response.status_code} {response.text}")
+            return None
+
+        text_response = (response.json()
+                        .get("candidates", [{}])[0]
+                        .get("content", {})
+                        .get("parts", [{}])[0]
+                        .get("text", ""))
+
+        # Clean JSON
+        text_response = text_response.strip()
+        if text_response.startswith("```json"):
+            text_response = text_response[7:]
+        if text_response.endswith("```"):
+            text_response = text_response[:-3]
+
+        return json.loads(text_response)
+
+    except Exception as e:
+        print(f"AI generation error: {e}")
+        return None
+    
+@app.route("/view_career_roadmap")
+def view_career_roadmap():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    roadmap = session.get('temp_career_roadmap')
+    if not roadmap:
+        flash("No roadmap found. Please generate one first.", "error")
+        return redirect(url_for("generate_career_roadmap"))
+
+    return render_template("career_roadmap_display.html", roadmap=roadmap)
+
+@app.route("/add_skill_to_goals", methods=["POST"])
+def add_skill_to_goals():
+    if "user_id" not in session:
+        return jsonify({"error": "Not logged in"}), 403
+
+    skill_name = request.form.get("skill_name", "").strip()
+    description = request.form.get("description", "").strip()
+    estimated_hours = request.form.get("estimated_hours", 0)
+
+    if not skill_name:
+        flash("Skill name is required.", "error")
+        return redirect(url_for("view_career_roadmap"))
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        # Insert new goal
+        c.execute("""
+            INSERT INTO user_goals (user_id, skill_name, target_date, status)
+            VALUES (?, ?, NULL, 'active')
+        """, (session["user_id"], skill_name))
+        goal_id = c.lastrowid
+
+        # Insert first step using description
+        c.execute("""
+            INSERT INTO user_roadmap_steps (goal_id, step_title, description, estimated_hours, order_index, completed)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (goal_id, "Start Learning", description, int(estimated_hours), 1, 0))
+
+        conn.commit()
+        conn.close()
+
+        flash(f"✅ Added '{skill_name}' to your learning goals!", "success")
+        return redirect(url_for("profile"))
+
+    except Exception as e:
+        print(f"Error adding skill to goals: {e}")
+        flash("Error adding skill. Please try again.", "error")
+        return redirect(url_for("view_career_roadmap"))
 
 # ----------------- Routes -----------------
 @app.route("/profile", methods=["GET", "POST"])
